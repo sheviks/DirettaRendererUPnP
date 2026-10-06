@@ -60,6 +60,41 @@ SMT="${SMT:-}"
 RENDERER_BIN="/opt/diretta-renderer-upnp/DirettaRendererUPnP"
 
 # Advanced network interface settings
+#
+# At boot, network-online.target can be reached through the control NIC alone,
+# before the target NIC exists under its final (renamed) name or before
+# NetworkManager/networkd has brought it up — a speed forced at that point
+# fails, or is wiped by the link-up autonegotiation that follows (reported on
+# Raspberry Pi 5 / Fedora with TARGET_SPEED=10). So: wait (bounded) for the
+# interface and its carrier, apply, read back the negotiated speed and retry
+# once if it didn't stick. Never blocks for more than ~45s, and never fatal.
+
+# Seconds to wait until /sys/class/net/$1 exists. Returns 1 on timeout.
+_wait_iface() {
+    local i
+    for ((i = 0; i < $2 * 10; i++)); do
+        [ -e "/sys/class/net/$1" ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# Seconds to wait until $1 has carrier. Returns 1 on timeout (the target may
+# simply be powered off — that is fine, we apply the setting anyway).
+_wait_carrier() {
+    local i
+    for ((i = 0; i < $2 * 10; i++)); do
+        [ "$(cat "/sys/class/net/$1/carrier" 2>/dev/null)" = "1" ] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# Prints the current link speed in Mbit/s, or nothing if unknown (no carrier).
+_link_speed() {
+    ethtool "$1" 2>/dev/null | awk '/^[[:space:]]*Speed:/ { gsub(/[^0-9]/, "", $2); print $2 }'
+}
+
 if [ -n "$TARGET_INTERFACE" ]; then
     if command -v ethtool >/dev/null 2>&1; then
         echo "Set advanced target network settings: $TARGET_INTERFACE -> ${TARGET_SPEED}Mbit/${TARGET_DUPLEX}-duplex"
@@ -68,12 +103,37 @@ if [ -n "$TARGET_INTERFACE" ]; then
         # rename that hasn't taken effect yet, pending a reboot) must not take
         # the whole renderer down via 'set -e' — DRUP's own UpnpInit2 retry
         # loop already handles a not-yet-ready network interface gracefully.
-        if ! ethtool -s "$TARGET_INTERFACE" speed "$TARGET_SPEED" duplex "$TARGET_DUPLEX"; then
-            echo "WARNING: failed to set speed/duplex on '$TARGET_INTERFACE' (see ethtool error above)." >&2
+        if ! _wait_iface "$TARGET_INTERFACE" 30; then
+            echo "WARNING: interface '$TARGET_INTERFACE' did not appear within 30s — skipping link tuning." >&2
             echo "         Check the interface name with 'ip link show' and TARGET_INTERFACE in your config." >&2
-            echo "         Continuing without link tuning." >&2
+        else
+            # Let NetworkManager/networkd finish bringing the link up first, so
+            # its autonegotiation doesn't override the forced speed afterwards.
+            _wait_carrier "$TARGET_INTERFACE" 10 && sleep 2
+            for attempt in 1 2; do
+                if ! ethtool -s "$TARGET_INTERFACE" speed "$TARGET_SPEED" duplex "$TARGET_DUPLEX"; then
+                    echo "WARNING: failed to set speed/duplex on '$TARGET_INTERFACE' (see ethtool error above)." >&2
+                    echo "         Continuing without link tuning." >&2
+                    break
+                fi
+                # Forcing the speed renegotiates the link: wait for it to come back.
+                sleep 1
+                _wait_carrier "$TARGET_INTERFACE" 5 || true
+                speed=$(_link_speed "$TARGET_INTERFACE")
+                if [ -z "$speed" ]; then
+                    echo "Link speed on $TARGET_INTERFACE not verifiable (no carrier — target off?)."
+                    break
+                elif [ "$speed" = "$TARGET_SPEED" ]; then
+                    echo "Link speed on $TARGET_INTERFACE: ${speed}Mbit/s (OK)"
+                    break
+                elif [ "$attempt" = 1 ]; then
+                    echo "Link speed on $TARGET_INTERFACE is ${speed}Mbit/s, expected ${TARGET_SPEED} — retrying in 3s."
+                    sleep 3
+                else
+                    echo "WARNING: link speed on '$TARGET_INTERFACE' is ${speed}Mbit/s, expected ${TARGET_SPEED}Mbit/s." >&2
+                fi
+            done
         fi
-        sleep 1
     else
         echo "WARNING: TARGET_INTERFACE set but ethtool is not installed — skipping link tuning." >&2
     fi
