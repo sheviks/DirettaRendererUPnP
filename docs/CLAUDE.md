@@ -83,6 +83,42 @@ DirettaRendererUPnP-L is the **low-latency optimized** fork of DirettaRendererUP
 
 **SDK Location:** auto-detected by the Makefile from `$HOME / . / .. / /opt` (latest `DirettaHostSDK_<version>/` directory wins, via `sort -V | tail -1`). Override with `DIRETTA_SDK_PATH=...`. Current SDK at the time of writing: v1.50.x — v1.49.x also still builds and runs fine (verified: `DIRETTA_SDK_PATH` override to a v149 tree compiles and links cleanly), since the auto-detect simply picks whichever version is actually installed rather than requiring the latest.
 
+### ⚠️ SDK 155 — breaking API changes, NOT yet applied here (2026-10-06)
+
+SDK revision 155 has three breaking changes, found and already fixed in two
+sibling projects (`tune-diretta` and `diretta-player`, both Dominique's own
+— not this repo). Since this project builds from source on each user's own
+machine (public repo, no distributed binary), auto-detect's "latest
+installed SDK wins" means **anyone who downloads SDK 155 will have their
+next build fail to compile** until these are ported here too. Not done yet
+— deliberately left as a heads-up for whoever picks this up next, rather
+than pushed blind without a real SDK-155 build/test cycle on this codebase.
+
+1. **`Sync::open()` gained a new trailing `bool diswork`** ("Enforce a
+   workaround during disconnection"), no default value, no further SDK
+   documentation anywhere beyond that one-line doc comment. This repo's
+   call is `DIRETTA::Sync::open(...)` in `DirettaSync.cpp` (~line 252,
+   9 args today) — needs a 10th argument. `false` is what both sibling
+   projects passed, to stay closest to pre-155 behavior; worth trying
+   `true` too if a disconnect-related bug is ever chased here, the name
+   is suggestive.
+2. **`Sync::Info::supportMSmode`** (a `uint16_t` bitmask *field*, bit0=MS1/
+   bit1=MS2/bit2=MS3) **became three separate boolean methods**:
+   `checkSinkSupportMSmode1()`/`2()`/`3()`. This repo reads the old field
+   directly in three places in `DirettaSync.cpp` (grep `supportMSmode`) to
+   log negotiated MS mode — each needs the bitmask reconstructed from the
+   three new methods, e.g. `(info.checkSinkSupportMSmode1() ? 0x01 : 0) |
+   (info.checkSinkSupportMSmode2() ? 0x02 : 0) | (info.checkSinkSupportMSmode3() ? 0x04 : 0)`,
+   so the existing bit-check logic below each site doesn't need to change.
+3. `SyncBuffer::setupBuffer()`/`connect()`'s callback-mode bool moved
+   between the two calls — **not applicable here**, this repo uses `Sync`
+   directly, never `SyncBuffer`.
+
+Full writeup (how each was found, exact header text, the AI/SDK licensing
+question this raised and Yu Harada's answer to it) is in `tune-diretta`'s
+memory file `tune-diretta-sdk-155-api-break.md` if cross-project context is
+ever needed — not accessible from this repo directly, ask Dominique.
+
 ### Key SDK Headers
 
 | Header | Purpose |
