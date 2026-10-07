@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.22] - 2026-10-07
+
+### Fixed
+- **`TARGET_SPEED` (forced link speed on the target NIC) lost after reboot** (Auke, Raspberry Pi 5 / Fedora 44, `TARGET_SPEED=10`). `start-renderer.sh` ran `ethtool -s` once, as soon as `network-online.target` was reached — which can happen through the control NIC alone, before the target NIC is ready: the launcher logged `failed to set speed/duplex` and the link stayed at 1000 Mbit/s (users worked around it with an unbounded `ExecStartPre` wait loop). The launcher now waits for the interface (≤30 s) and its carrier (≤10 s, then 2 s for NetworkManager/networkd to settle), applies the setting, reads the negotiated speed back and retries once on mismatch — logging `Link speed on <iface>: 10Mbit/s (OK)`, or a warning. Bounded (~45 s worst case, e.g. target powered off) and never fatal. Confirmed on Pi 5 by Auke. Any `ExecStartPre` override added as a workaround can be removed (`sudo systemctl revert diretta-renderer`).
+- `diretta-renderer.conf` template: documents the 10 Mbps ceiling (PCM 96 kHz / DSD64).
+
 ## [2.5.21] - 2026-09-30
 
 ### Fixed

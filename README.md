@@ -1,4 +1,4 @@
-# Diretta UPnP Renderer v2.5.21
+# Diretta UPnP Renderer v2.5.22
 
 **The world's first native UPnP/DLNA renderer with Diretta protocol support - Low-Latency Edition**
 
@@ -8,19 +8,18 @@
 
 ---
 
-![Version](https://img.shields.io/badge/version-2.5.21-blue.svg)
+![Version](https://img.shields.io/badge/version-2.5.22-blue.svg)
 ![Low Latency](https://img.shields.io/badge/Latency-Low-green.svg)
 ![SDK](https://img.shields.io/badge/SDK-DIRETTA::Sync-orange.svg)
 ![Audirvana](https://img.shields.io/badge/Audirvana-Compatible-green.svg)
 
 ---
 
-## What's New in v2.5.21
+## What's New in v2.5.22
 
-**Fix: WebUI settings page could 500 on a non-ASCII message, and Restart/Stop never worked on OpenRC (issue #99, harmonyosnews).**
+**Fix: a forced target link speed (`TARGET_SPEED`, e.g. 10 Mbps) was lost after reboot (Auke, Raspberry Pi 5).**
 
-- Any accented character in a flash message (a localized string, or an accented `systemctl`/`rc-service` error) crashed the settings page with a 500 instead of redirecting back with the message — `http.server` encodes headers as latin-1, and the message went into the `Location` header unencoded. Now percent-encoded.
-- `restart_service()`/`stop_service()` were hardcoded to `systemctl`, so the Restart/Stop buttons silently did nothing on GentooPlayer/Gentoo/Alpine (OpenRC). Now detects and uses `rc-service` there too.
+- The launcher applied `ethtool` once, at a moment when the target NIC could still be missing or not yet up, so the setting failed and the link stayed at 1000 Mbit/s. It now waits (bounded) for the interface and its link, applies the speed, reads it back and retries once — the result is logged (`journalctl -u diretta-renderer | grep -i speed`). Any `ExecStartPre` wait override added as a workaround can be removed.
 
 See [CHANGELOG.md](CHANGELOG.md) for details.
 
@@ -28,6 +27,7 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 
 | Version | Highlights |
 |---------|-----------|
+| **v2.5.21** | Fix: WebUI settings page could 500 on a non-ASCII message, and Restart/Stop never worked on OpenRC (issue #99, harmonyosnews) |
 | **v2.5.20** | Fix: clicks when PCM playback is cut or restarted in the middle of the music (PR #98, herisson-88) |
 | **v2.5.19** | Build fix: a false "FFmpeg version mismatch" abort on Fedora aarch64 (Raspberry Pi) |
 | **v2.5.18** | Build fix: compiling against some SDK 149 installs failed with "use of undeclared identifier 'is_MSmode'" |
@@ -1171,4 +1171,4 @@ This software is provided "as is" without warranty. While designed for high-qual
 
 **Enjoy bit-perfect, low-latency audio streaming!**
 
-*Last updated: 2026-09-30 (v2.5.21)*
+*Last updated: 2026-10-07 (v2.5.22)*
