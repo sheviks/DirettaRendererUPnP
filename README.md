@@ -1,4 +1,4 @@
-# Diretta UPnP Renderer v2.5.22
+# Diretta UPnP Renderer v2.5.23
 
 **The world's first native UPnP/DLNA renderer with Diretta protocol support - Low-Latency Edition**
 
@@ -8,18 +8,18 @@
 
 ---
 
-![Version](https://img.shields.io/badge/version-2.5.22-blue.svg)
+![Version](https://img.shields.io/badge/version-2.5.23-blue.svg)
 ![Low Latency](https://img.shields.io/badge/Latency-Low-green.svg)
 ![SDK](https://img.shields.io/badge/SDK-DIRETTA::Sync-orange.svg)
 ![Audirvana](https://img.shields.io/badge/Audirvana-Compatible-green.svg)
 
 ---
 
-## What's New in v2.5.22
+## What's New in v2.5.23
 
-**Fix: a forced target link speed (`TARGET_SPEED`, e.g. 10 Mbps) was lost after reboot (Auke, Raspberry Pi 5).**
+**Fix: source compatibility with Diretta Host SDK 155.**
 
-- The launcher applied `ethtool` once, at a moment when the target NIC could still be missing or not yet up, so the setting failed and the link stayed at 1000 Mbit/s. It now waits (bounded) for the interface and its link, applies the speed, reads it back and retries once — the result is logged (`journalctl -u diretta-renderer | grep -i speed`). Any `ExecStartPre` wait override added as a workaround can be removed.
+- SDK 155 broke source compatibility in four places (`Sync::open()`'s new required parameter, an SDK getter that changed from a field to three methods, a removed settings field). All four are now resolved automatically at compile time — the same code builds against SDK 149, 150 or 155, whichever you have installed, with no manual changes needed.
 
 See [CHANGELOG.md](CHANGELOG.md) for details.
 
@@ -27,6 +27,7 @@ See [CHANGELOG.md](CHANGELOG.md) for details.
 
 | Version | Highlights |
 |---------|-----------|
+| **v2.5.22** | Fix: a forced target link speed (`TARGET_SPEED`) was lost after reboot (Auke, Raspberry Pi 5) |
 | **v2.5.21** | Fix: WebUI settings page could 500 on a non-ASCII message, and Restart/Stop never worked on OpenRC (issue #99, harmonyosnews) |
 | **v2.5.20** | Fix: clicks when PCM playback is cut or restarted in the middle of the music (PR #98, herisson-88) |
 | **v2.5.19** | Build fix: a false "FFmpeg version mismatch" abort on Fedora aarch64 (Raspberry Pi) |
@@ -1171,4 +1172,4 @@ This software is provided "as is" without warranty. While designed for high-qual
 
 **Enjoy bit-perfect, low-latency audio streaming!**
 
-*Last updated: 2026-10-07 (v2.5.22)*
+*Last updated: 2026-10-07 (v2.5.23)*

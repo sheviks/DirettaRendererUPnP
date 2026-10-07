@@ -1,5 +1,10 @@
 # Changelog
 
+## [2.5.23] - 2026-10-07
+
+### Fixed
+- **SDK 155 source compatibility** — four breaking API changes in the Diretta Host SDK's revision 155, three anticipated from sibling projects (`tune-diretta`, `diretta-player`) and a fourth found only by actually compiling against a real SDK 155 tree. All four resolved at compile time via SFINAE/`if constexpr` (the same pattern already used for `sdkConnect()`/`sdkMsMode()`), so `DirettaSync.cpp` builds unmodified against SDK 149, 150 and 155 — no version pinning needed: (1) `Sync::open()` gained a trailing `bool diswork` parameter, no default; (2) `Sync::Info::supportMSmode` (a bitmask field on SDK ≤150) became three separate boolean methods (`checkSinkSupportMSmode1()`/`2()`/`3()`); (3) `Find::Setting::Name` was removed outright with no replacement — purely cosmetic (3 of 4 construction sites in this codebase never set it anyway). Verified: clean build against SDK 149, 150 and 155, `make test` unaffected (32 passed/2 failed, same pre-existing unrelated DoP-encoding failures as before), `--list-targets` exercises the `Find::Setting`/discovery path cleanly against SDK 155. See `docs/CLAUDE.md`'s "SDK 155 breaking API changes" section for the full per-item writeup.
+
 ## [2.5.22] - 2026-10-07
 
 ### Fixed

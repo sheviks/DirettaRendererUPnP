@@ -81,43 +81,57 @@ DirettaRendererUPnP-L is the **low-latency optimized** fork of DirettaRendererUP
 
 ## Diretta SDK Reference
 
-**SDK Location:** auto-detected by the Makefile from `$HOME / . / .. / /opt` (latest `DirettaHostSDK_<version>/` directory wins, via `sort -V | tail -1`). Override with `DIRETTA_SDK_PATH=...`. Current SDK at the time of writing: v1.50.x — v1.49.x also still builds and runs fine (verified: `DIRETTA_SDK_PATH` override to a v149 tree compiles and links cleanly), since the auto-detect simply picks whichever version is actually installed rather than requiring the latest.
+**SDK Location:** auto-detected by the Makefile from `$HOME / . / .. / /opt` (latest `DirettaHostSDK_<version>/` directory wins, via `sort -V | tail -1`). Override with `DIRETTA_SDK_PATH=...`. Current SDK at the time of writing: v1.55.x — v1.49.x and v1.50.x also still build and run fine (verified: `DIRETTA_SDK_PATH` override to either tree compiles and links cleanly), since the auto-detect simply picks whichever version is actually installed rather than requiring the latest. See "SDK 155 breaking API changes" below for what changed between 150 and 155.
 
-### ⚠️ SDK 155 — breaking API changes, NOT yet applied here (2026-10-06)
+### SDK 155 breaking API changes — ported (2026-10-07)
 
-SDK revision 155 has three breaking changes, found and already fixed in two
-sibling projects (`tune-diretta` and `diretta-player`, both Dominique's own
-— not this repo). Since this project builds from source on each user's own
-machine (public repo, no distributed binary), auto-detect's "latest
-installed SDK wins" means **anyone who downloads SDK 155 will have their
-next build fail to compile** until these are ported here too. Not done yet
-— deliberately left as a heads-up for whoever picks this up next, rather
-than pushed blind without a real SDK-155 build/test cycle on this codebase.
+SDK revision 155 broke source compatibility in four places (three expected
+going in from the sibling projects `tune-diretta`/`diretta-player`, a fourth
+found only by actually compiling against a real SDK 155 tree — it wasn't in
+either sibling project's writeup). All four resolved at compile time via the
+same SFINAE/`if constexpr` pattern as `sdkConnect()`/`sdkMsMode()` (added
+v2.5.16/v2.5.18), so the same `DirettaSync.cpp` keeps building unmodified
+against SDK 149, 150 and 155 — no version pinning, no `#ifdef SDK_VERSION`.
+Verified: clean build against all three, `make test` unaffected (32/2,
+same pre-existing DoP-encoding failures as before), `--list-targets` runs
+the actual `Find::Setting`/discovery code path cleanly against SDK 155.
 
-1. **`Sync::open()` gained a new trailing `bool diswork`** ("Enforce a
-   workaround during disconnection"), no default value, no further SDK
-   documentation anywhere beyond that one-line doc comment. This repo's
-   call is `DIRETTA::Sync::open(...)` in `DirettaSync.cpp` (~line 252,
-   9 args today) — needs a 10th argument. `false` is what both sibling
-   projects passed, to stay closest to pre-155 behavior; worth trying
-   `true` too if a disconnect-related bug is ever chased here, the name
-   is suggestive.
-2. **`Sync::Info::supportMSmode`** (a `uint16_t` bitmask *field*, bit0=MS1/
-   bit1=MS2/bit2=MS3) **became three separate boolean methods**:
-   `checkSinkSupportMSmode1()`/`2()`/`3()`. This repo reads the old field
-   directly in three places in `DirettaSync.cpp` (grep `supportMSmode`) to
-   log negotiated MS mode — each needs the bitmask reconstructed from the
-   three new methods, e.g. `(info.checkSinkSupportMSmode1() ? 0x01 : 0) |
-   (info.checkSinkSupportMSmode2() ? 0x02 : 0) | (info.checkSinkSupportMSmode3() ? 0x04 : 0)`,
-   so the existing bit-check logic below each site doesn't need to change.
-3. `SyncBuffer::setupBuffer()`/`connect()`'s callback-mode bool moved
+1. **`Sync::open()` gained a trailing `bool diswork`** ("Enforce a
+   workaround during disconnection", no further SDK documentation beyond
+   that one-line doc comment) — SDK 149/150 only have the 9-arg overload.
+   New `SdkHasDiswork<S>`/`sdkOpen()` resolve which overload exists;
+   `openSDK()` calls `sdkOpen(static_cast<DIRETTA::Sync&>(*this), ...)`
+   passing `false` for `diswork` on SDK 155 (what both sibling projects
+   pass, closest to pre-155 behavior — worth trying `true` if a
+   disconnect-related bug is ever chased here, the name is suggestive).
+   The explicit `static_cast` matters: `DirettaSync` declares its own
+   `open(const AudioFormat&)`, which hides `DIRETTA::Sync::open()` by name
+   from a `DirettaSync`-typed expression — without the cast, `sdkOpen`'s
+   SFINAE probe and its `sync.open(...)` call would both silently resolve
+   against the wrong `open()` overload (or fail to compile).
+2. **`Sync::Info::supportMSmode`** (a `uint16_t` bitmask field, bit0=MS1/
+   bit1=MS2/bit2=MS3 on SDK ≤150) **became three boolean methods**
+   (`checkSinkSupportMSmode1()`/`2()`/`3()`) on SDK 155, field gone. New
+   `SdkHasMSmodeField<I>`/`sdkMSmodeBitmask()` reconstruct the bitmask from
+   whichever the SDK exposes; the three logging call sites in
+   `DirettaSync.cpp` (`info.supportMSmode` → `sdkMSmodeBitmask(info)`) and
+   their bit-check logic below didn't need to change.
+3. **`Find::Setting::Name` removed outright, no replacement** (the one not
+   anticipated from the sibling projects — found by the SDK 155 build
+   failing on it directly). Purely a self-identification string for the
+   discovery request: 3 of this file's 4 `Find::Setting` construction sites
+   never set it anyway and work fine without it, confirming it's cosmetic.
+   New `SdkHasFindSettingName<T>`/`setFindSettingNameIfPresent()` set it
+   only where the field exists.
+4. `SyncBuffer::setupBuffer()`/`connect()`'s callback-mode bool moved
    between the two calls — **not applicable here**, this repo uses `Sync`
    directly, never `SyncBuffer`.
 
-Full writeup (how each was found, exact header text, the AI/SDK licensing
-question this raised and Yu Harada's answer to it) is in `tune-diretta`'s
-memory file `tune-diretta-sdk-155-api-break.md` if cross-project context is
-ever needed — not accessible from this repo directly, ask Dominique.
+Cross-project context (how items 1/2 were found against `tune-diretta`/
+`diretta-player`, the AI/SDK licensing question that investigation raised
+and Yu Harada's answer) is in `tune-diretta`'s memory file
+`tune-diretta-sdk-155-api-break.md` if ever needed — not accessible from
+this repo directly, ask Dominique.
 
 ### Key SDK Headers
 
@@ -558,6 +572,8 @@ sudo apt install build-essential libavformat-dev libavcodec-dev libavutil-dev li
 - [x] WebUI: percent-encoded `Location` header + OpenRC support (v2.5.21, issue #99, harmonyosnews; found while packaging for GentooPlayer). Two independent bugs in `webui/diretta_webui.py`, both hit by any settings-page action: (1) `_send_redirect()` sent the flash message straight into the `Location` header — `http.server` encodes headers as latin-1, so a non-ASCII character (a localized message, an accented `systemctl`/`rc-service` stderr line) raised `UnicodeEncodeError` and turned the 303 redirect into a 500, making the page appear to do nothing; fixed via `urllib.parse.quote()`, `/?&=` left unescaped so the query string stays intact; (2) `restart_service()`/`stop_service()` were hardcoded to `systemctl`, so Restart/Stop silently did nothing on GentooPlayer/Gentoo/Alpine (OpenRC, PID 1 = `init`) — the resulting `FileNotFoundError` was even reported back as a misleading "systemctl not found". Ported slim2UPnP's already-proven `shutil.which()`-based systemd/OpenRC detection (slim2UPnP's own copy of this shared file had independently already fixed bug 2, but not bug 1). Same two fixes ported to slim2Diretta (v1.4.26); header fix alone to slim2UPnP (v0.1.35-beta, already had OpenRC support).
 
 - [x] Launcher: `TARGET_SPEED` survives boot (v2.5.22, Auke, Pi 5 / Fedora 44, confirmed on hardware). `start-renderer.sh` ran `ethtool -s` once right after `network-online.target`, which can be reached via the control NIC alone — on Auke's Pi the target NIC wasn't ready, `ethtool` failed (`failed to set speed/duplex`) and the link stayed at 1000. Now: wait for `/sys/class/net/$TARGET_INTERFACE` (≤30 s) and carrier (≤10 s, +2 s settle), apply, read back via `ethtool` (`Speed:`), retry once on mismatch; bounded (~45 s worst case) and never fatal under `set -e` (carrier waits guarded with `|| true`). Unrelated finding from the same report, no code change: on the vanilla RT kernel the RP1 eth IRQ affinity is not settable (EPERM, even as root) — harmless with `irqaffinity=<housekeeping>`; works on the Raspberry Pi downstream kernel (AudioLinux).
+
+- [x] SDK 155 source-compatibility (v2.5.23). Four breaking API changes in SDK revision 155, resolved via the same SFINAE/`if constexpr` compile-time dispatch already used for `sdkConnect()`/`sdkMsMode()` — `DirettaSync.cpp` now builds unmodified against SDK 149, 150 and 155. See "SDK 155 breaking API changes — ported" above (Diretta SDK Reference section) for the full per-item writeup: `Sync::open()`'s new trailing `diswork` bool (new `sdkOpen()`, with an explicit `static_cast<DIRETTA::Sync&>` needed since `DirettaSync::open(const AudioFormat&)` hides the SDK's `open()` by name), `Info::supportMSmode` field → three `checkSinkSupportMSmode1/2/3()` methods (new `sdkMSmodeBitmask()`), and `Find::Setting::Name` removed outright with no replacement (new `setFindSettingNameIfPresent()`) — this last one found only by actually compiling against a real SDK 155 tree, not anticipated from the sibling projects' prior writeup. Verified: clean build against all three SDKs, `make test` unaffected, `--list-targets` exercises the `Find::Setting` path cleanly against SDK 155.
 
 ### Potential Future Work
 - [ ] AVX-512 format conversions (currently only memcpy uses AVX-512)
